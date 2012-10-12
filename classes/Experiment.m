@@ -42,6 +42,7 @@ classdef Experiment < handle
         bicycleRollAngle = [];
         bicycleSpeed = [];
         bicycleCadence = [];
+        steeringJointRun = [];
         
         
     end
@@ -68,7 +69,7 @@ classdef Experiment < handle
         end
         
         function [ex] = getARDataAndSyncWithIMU(ex)
-            loadedDataFilename=['./dataloaded' ex.runNamePrint ex.filenamePrint...
+            loadedDataFilename=['./dataloaded-' ex.runNamePrint ex.filenamePrint...
                 '-getARDataAndSyncWithIMU.mat'];
             %Get the data
             display(['GETTING DATA FROM FILE:' loadedDataFilename]);
@@ -83,23 +84,33 @@ classdef Experiment < handle
                         -1,ex.Fs_IMU,ex.Fs_IMU);
             end
             display('DATA RECEIVED');
-            changedArFrontRun = ThreeD.changeStartTime(ex.arFrontRun,0);
-            changedFrameRun = ThreeD.changeStartTime(ex.frameRun,0);
+            changedArFrontRun = ThreeD.callibrate(ex.arFrontRun,5*ex.Fs_AR,10);
+            %HACK: NEED TO CHECK FOR A GOOD SHIFTING SEQUENCE, MAKE SAME
+            %LENGTH
+            changedSteeringJointRun = ThreeD.callibrate(ex.frameRun,...
+                ex.callibrateStart*5,100);
+            changedArFrontRun = [changedArFrontRun,...
+                changedSteeringJointRun(length(changedSteeringJointRun))];
+
             [roll_frame,pitch_frame,yaw_frame,t_ar,figureARInverse]=ThreeD.getAndPlotRPYt(...
-                changedArFrontRun,'RAW AR/INVERSE DATA',...
+                changedArFrontRun,'RAW AR/IMU DATA',...
                 false,'timeseries',ex.ARPLOTSTYLE);
+            [roll_frame,pitch_frame,yaw_frame,t_frame,figureARInverse]=ThreeD.getAndPlotRPYt(...
+                changedSteeringJointRun,'',...
+                figureARInverse,'timeseries',ex.FRAMESENSORPLOTSYLE);
             [ex.Fs_AR,ex.Variance_AR] =  ThreeD.estimateFsAndVariance(t_ar);
             %Get the inverse function - Bike moves not global frame.
-            changedArFrontRun =ThreeD.cellTranspose(changedArFrontRun);
-            [roll_frame,pitch_frame,yaw_frame,t_ar]=ThreeD.getAndPlotRPYt(...
-                changedArFrontRun,'',...
-                figureARInverse,'timeseries',ex.FRAMESENSORPLOTSYLE);
+%             changedArFrontRun =ThreeD.cellTranspose(changedArFrontRun);
+%             [roll_frame,pitch_frame,yaw_frame,t_ar]=ThreeD.getAndPlotRPYt(...
+%                 changedArFrontRun,'',...
+%                 figureARInverse,'timeseries',ex.FRAMESENSORPLOTSYLE);
             %Get change of zero frame
-            imuToAr = ThreeD.getChangeOfGlobalReferenceFrames(...
-               changedArFrontRun,changedFrameRun,ex.callibrateStart,10);
-            changedFrameRun = imuToAr*changedFrameRun;
+            imuToAr = ThreeD(roty(-pi/4));
+            %imuToAr = ThreeD.getChangeOfGlobalReferenceFrames(...
+            %   changedArFrontRun,changedFrameRun,ex.callibrateStart,10);
+            changedSteeringJointRun = imuToAr*changedSteeringJointRun;
             [roll_frame,pitch_frame,yaw_frame,t_frame,figureResampled]=ThreeD.getAndPlotRPYt(...
-                changedFrameRun,'IMU CHANGED TO AR',...
+                changedSteeringJointRun,'IMU CHANGED TO AR',...
                 false,'timeseries',ex.FRAMESENSORPLOTSYLE);
             
             
@@ -108,25 +119,32 @@ classdef Experiment < handle
             tStart = t_ar(1);
             tEnd= t_ar(N);
             t_required = (0:1/ex.Fs_AR:tEnd-tStart);
-            changedFrameRun = ThreeD.resample(changedFrameRun,t_required);
+            changedSteeringJointRun = ThreeD.resample(changedSteeringJointRun,t_required);
             changedArFrontRun = ThreeD.resample(changedArFrontRun,t_required);
             
             [roll_ar,pitch_ar,yaw_ar,t_ar,figureResampled]=ThreeD.getAndPlotRPYt(...
                 changedArFrontRun,'AR/frame sensor RESAMPLED',...
                 false,'timeseries',ex.ARPLOTSTYLE);
             [roll_frame,pitch_frame,yaw_frame,t_frame,figureResampled]=ThreeD.getAndPlotRPYt(...
-                changedFrameRun,'',...
+                changedSteeringJointRun,'',...
                 figureResampled,'timeseries',ex.FRAMESENSORPLOTSYLE);
             
             display('SYNCHRONISE IMU WITH AR')
-            [changedArFrontRun,changedFrameRun] = synchroniseWithRespectToRPY(...
+            arLength = length(changedArFrontRun);
+            [changedArFrontRun,changedSteeringJointRun] = synchroniseWithRespectToRPY(...
                 roll_ar,pitch_ar,yaw_ar,changedArFrontRun,...
-                roll_frame,pitch_frame,yaw_frame,changedFrameRun,1);
+                roll_frame,pitch_frame,yaw_frame,changedSteeringJointRun,1);
+            if arLength ~= length(changedArFrontRun)
+                changedArFrontRun = ThreeD.changeStartTime(changedArFrontRun,0);
+            else
+                changedSteeringJointRun = ThreeD.changeStartTime(changedSteeringJointRun,0);
+            end
+            
             [roll_ar,pitch_ar,yaw_ar,t_ar,figureSynced]=ThreeD.getAndPlotRPYt(...
                 changedArFrontRun,'AR/frameSensor synchronised',...
                 false,'timeseries',ex.ARPLOTSTYLE);
             [roll_frame,pitch_frame,yaw_frame,t_frame,figureSynced]=ThreeD.getAndPlotRPYt(...
-                changedFrameRun,'',...
+                changedSteeringJointRun,'',...
                 figureSynced,'timeseries',ex.FRAMESENSORPLOTSYLE);
         end
         
@@ -209,15 +227,17 @@ classdef Experiment < handle
                         ex.bicycleCadence(ex.ant_t>=ex.ant_sync_t(1));
                     ex.ant_t =  ex.ant_t(ex.ant_t>=ex.ant_sync_t(1));
                 end
-                ex.ant_t =ex.ant_t-repmat(ex.ant_t(1),size(ex.ant_t));
-                set(0,'CurrentFigure',figSpeed)
-                subplot(2,1,1)
-                plot(ex.ant_t,ex.bicycleSpeed);
-                title('Forward Velocity: ');
-                subplot(2,1,2)
-                plot(ex.ant_t,ex.bicycleCadence);
-                title('Pedaling Cadence: ');
-                display('FORWARD VELOCITY PLOTTED');
+                if ~isempty(ex.ant_t)
+                    ex.ant_t =ex.ant_t-repmat(ex.ant_t(1),size(ex.ant_t));
+                    set(0,'CurrentFigure',figSpeed)
+                    subplot(2,1,1)
+                    plot(ex.ant_t,ex.bicycleSpeed);
+                    title('Forward Velocity: ');
+                    subplot(2,1,2)
+                    plot(ex.ant_t,ex.bicycleCadence);
+                    title('Pedaling Cadence: ');
+                    display('FORWARD VELOCITY PLOTTED');
+                end
                 if any(ex.frameRunSyncs)
                     display('SYNCING SENSORS ON MANUAL VALUES');
                     if any(ex.steeringColumnSyncs)
@@ -252,7 +272,7 @@ classdef Experiment < handle
                 end
             end
             
-            [timestamps,steeringJoint_t,...
+            [timestamps,ex.steeringJointRun,...
                 steeringJointRollAngle,...
                 steeringJointPitchAngle,...
                 steeringJointYawAngle,...
