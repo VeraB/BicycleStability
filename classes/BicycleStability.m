@@ -70,8 +70,8 @@ classdef BicycleStability < ThreeD
         
         
         %%
-        function [tm_t,t] = visualeyzePreProcessing(filename,VisualEyezRun,...
-                sensorName,varargin)
+        function [rawData] = visualeyzePreProcessing(filename,VisualEyezRun,...
+                sensorName,rightBackName,leftBackName,frontName,varargin)
             % Loads a Visualeyze run, checks for gaps and does the
             % pre-processing (interpolation and filtering), creates a 3D object
             % and gets and plots the roll pitch yaw
@@ -98,7 +98,7 @@ classdef BicycleStability < ThreeD
             
             % Read in the 3 markers for all sensors
             [rawData] = RawMarkers.readFromFile(filename,VisualEyezRun,...
-                [sensorName 'RB'],[sensorName 'LB'],[sensorName 'FT']);
+                rightBackName,leftBackName,frontName);
             
             % Check if there are NAN's, zero's or outliers in the data and plot them
             [dataAll,dataSome,dataOutliers] = ...
@@ -144,14 +144,15 @@ classdef BicycleStability < ThreeD
             [filtDataN, t_Original] = RawMarkers.eraseNan(filtSpacedData);
             
             % create 3D object
-            tm_t = Markers3D.create3DMarkersFromRawData(filtDataN);
-            
-            % calculate and plot Roll Pitch Yaw
-            [roll,pitch,yaw,t] = ...
-                ThreeD.getAndPlotRPYt(tm_t,sensorName,false,'timeseries','*b',...
-                'plotDropped', true, 'yesOrNoAll', dataAll, 'yesOrNoSome', dataSome,...
-                'yesOrNoOutlier', dataOutliers,'yesOrNoWellSpaced',dataWellSpaced,...
-                't_Original',t_Original);
+            rawData = filtDataN;
+%             tm_t = Markers3D.create3DMarkersFromRawData(filtDataN);
+%             
+%             % calculate and plot Roll Pitch Yaw
+%             [roll,pitch,yaw,t] = ...
+%                 ThreeD.getAndPlotRPYt(tm_t,sensorName,false,'timeseries','*b',...
+%                 'plotDropped', true, 'yesOrNoAll', dataAll, 'yesOrNoSome', dataSome,...
+%                 'yesOrNoOutlier', dataOutliers,'yesOrNoWellSpaced',dataWellSpaced,...
+%                 't_Original',t_Original);
             
         end
         %%
